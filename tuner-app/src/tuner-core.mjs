@@ -1,5 +1,9 @@
 export const A4_FREQUENCY = 440;
 export const IN_TUNE_CENTS = 5;
+export const GUITAR_MIN_FREQUENCY = 70;
+export const GUITAR_MAX_FREQUENCY = 420;
+export const QUALITY_CLARITY_THRESHOLD = 0.78;
+export const TRUSTED_READING_HOLD_MS = 520;
 
 const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
 
@@ -83,14 +87,49 @@ export function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-export function detectPitchAutoCorrelation(buffer, sampleRate, options = {}) {
-  const minFrequency = options.minFrequency ?? 70;
-  const maxFrequency = options.maxFrequency ?? 420;
-  const threshold = options.clarityThreshold ?? 0.72;
-
+export function rmsForBuffer(buffer) {
   let squaredSum = 0;
   for (let index = 0; index < buffer.length; index += 1) squaredSum += buffer[index] ** 2;
-  const rms = Math.sqrt(squaredSum / buffer.length);
+  return Math.sqrt(squaredSum / buffer.length);
+}
+
+export function updateAdaptiveNoiseFloor(noiseFloor, rms, options = {}) {
+  const initialFloor = options.initialFloor ?? 0.004;
+  const maximumFloor = options.maximumFloor ?? 0.08;
+  const risingRate = options.risingRate ?? 0.18;
+  const fallingRate = options.fallingRate ?? 0.025;
+  const currentFloor = Number.isFinite(noiseFloor) && noiseFloor > 0 ? noiseFloor : initialFloor;
+  const target = Math.max(0, Math.min(maximumFloor, rms));
+  const rate = target > currentFloor ? risingRate : fallingRate;
+  return currentFloor + (target - currentFloor) * rate;
+}
+
+export function adaptiveSilenceThreshold(noiseFloor, options = {}) {
+  const minimum = options.minimum ?? 0.008;
+  const maximum = options.maximum ?? 0.08;
+  const multiplier = options.multiplier ?? 2.4;
+  return Math.max(minimum, Math.min(maximum, noiseFloor * multiplier));
+}
+
+export function hasStablePitchFrequencies(frequencies, requiredFrames = 3, maximumCents = 35) {
+  if (frequencies.length < requiredFrames) return false;
+  const recent = frequencies.slice(-requiredFrames);
+  const center = median(recent);
+  return center !== null && recent.every((frequency) => (
+    frequency > 0 && Math.abs(centsBetween(frequency, center)) <= maximumCents
+  ));
+}
+
+export function isTrustedReadingExpired(lastTrustedAt, timestamp, holdMs = TRUSTED_READING_HOLD_MS) {
+  return timestamp - lastTrustedAt > holdMs;
+}
+
+export function detectPitchAutoCorrelation(buffer, sampleRate, options = {}) {
+  const minFrequency = options.minFrequency ?? GUITAR_MIN_FREQUENCY;
+  const maxFrequency = options.maxFrequency ?? GUITAR_MAX_FREQUENCY;
+  const threshold = options.clarityThreshold ?? 0.72;
+
+  const rms = options.rms ?? rmsForBuffer(buffer);
   if (rms < (options.silenceThreshold ?? 0.008)) return null;
 
   const minLag = Math.max(2, Math.floor(sampleRate / maxFrequency));

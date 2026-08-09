@@ -3,14 +3,21 @@ import {
   BUILT_IN_TUNINGS,
   IN_TUNE_CENTS,
   NOTE_OPTIONS,
+  QUALITY_CLARITY_THRESHOLD,
+  TRUSTED_READING_HOLD_MS,
+  adaptiveSilenceThreshold,
   centsBetween,
   createTuning,
   detectPitchAutoCorrelation,
+  hasStablePitchFrequencies,
+  isTrustedReadingExpired,
   median,
   normalizeCustomTuning,
   normalizeImportedTunings,
   portableTuning,
+  rmsForBuffer,
   selectAutomaticTarget,
+  updateAdaptiveNoiseFloor,
 } from "./tuner-core.mjs";
 
 const CUSTOM_TUNINGS_KEY = "guitar-tuner.custom-tunings.v1";
@@ -24,19 +31,30 @@ type Reading = {
   clarity: number;
 } | null;
 
+type SignalReason = "quiet" | "noise" | "unstable";
+type SignalEvent =
+  | { type: "reading"; frequency: number; clarity: number }
+  | { type: "clear"; reason: SignalReason };
+
 class TunerEngine {
-  onReading: (reading: { frequency: number; clarity: number } | null) => void;
+  onSignal: (event: SignalEvent) => void;
   context: AudioContext | null = null;
   stream: MediaStream | null = null;
+  source: MediaStreamAudioSourceNode | null = null;
+  highPass: BiquadFilterNode | null = null;
+  lowPass: BiquadFilterNode | null = null;
   analyser: AnalyserNode | null = null;
   frame: number | null = null;
   lastRead = 0;
   samples: Float32Array | null = null;
-  history: number[] = [];
+  candidates: Array<{ frequency: number; clarity: number }> = [];
+  noiseFloor = 0.004;
+  lastTrustedAt = 0;
+  lastClearReason: SignalReason | null = null;
   running = false;
 
-  constructor(onReading: (reading: { frequency: number; clarity: number } | null) => void) {
-    this.onReading = onReading;
+  constructor(onSignal: (event: SignalEvent) => void) {
+    this.onSignal = onSignal;
   }
 
   async start() {
@@ -53,14 +71,32 @@ class TunerEngine {
       },
     });
     this.context = new AudioContext();
-    const source = this.context.createMediaStreamSource(this.stream);
+    this.source = this.context.createMediaStreamSource(this.stream);
+    this.highPass = this.context.createBiquadFilter();
+    this.highPass.type = "highpass";
+    this.highPass.frequency.value = 65;
+    this.highPass.Q.value = 0.707;
+    this.lowPass = this.context.createBiquadFilter();
+    this.lowPass.type = "lowpass";
+    this.lowPass.frequency.value = 450;
+    this.lowPass.Q.value = 0.707;
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 8192;
     this.analyser.smoothingTimeConstant = 0;
     this.samples = new Float32Array(this.analyser.fftSize);
-    source.connect(this.analyser);
+    this.source.connect(this.highPass);
+    this.highPass.connect(this.lowPass);
+    this.lowPass.connect(this.analyser);
+    this.lastTrustedAt = performance.now();
     this.running = true;
     this.loop();
+  }
+
+  handleRejected(timestamp: number, reason: SignalReason) {
+    if (isTrustedReadingExpired(this.lastTrustedAt, timestamp, TRUSTED_READING_HOLD_MS) && this.lastClearReason !== reason) {
+      this.lastClearReason = reason;
+      this.onSignal({ type: "clear", reason });
+    }
   }
 
   loop = (timestamp = 0) => {
@@ -68,14 +104,32 @@ class TunerEngine {
     if (timestamp - this.lastRead > 72) {
       this.lastRead = timestamp;
       this.analyser.getFloatTimeDomainData(this.samples);
-      const pitch = detectPitchAutoCorrelation(this.samples, this.context.sampleRate);
+      const rms = rmsForBuffer(this.samples);
+      const silenceThreshold = adaptiveSilenceThreshold(this.noiseFloor);
+      const pitch = detectPitchAutoCorrelation(this.samples, this.context.sampleRate, {
+        clarityThreshold: QUALITY_CLARITY_THRESHOLD,
+        silenceThreshold,
+        rms,
+      });
       if (pitch) {
-        this.history.push(pitch.frequency);
-        if (this.history.length > 5) this.history.shift();
-        this.onReading({ frequency: median(this.history) ?? pitch.frequency, clarity: pitch.clarity });
+        this.candidates.push({ frequency: pitch.frequency, clarity: pitch.clarity });
+        if (this.candidates.length > 3) this.candidates.shift();
+        const frequencies = this.candidates.map((candidate) => candidate.frequency);
+        if (hasStablePitchFrequencies(frequencies)) {
+          this.lastTrustedAt = timestamp;
+          this.lastClearReason = null;
+          this.onSignal({
+            type: "reading",
+            frequency: median(frequencies) ?? pitch.frequency,
+            clarity: median(this.candidates.map((candidate) => candidate.clarity)) ?? pitch.clarity,
+          });
+        } else {
+          this.handleRejected(timestamp, "unstable");
+        }
       } else {
-        this.history = [];
-        this.onReading(null);
+        this.noiseFloor = updateAdaptiveNoiseFloor(this.noiseFloor, rms);
+        this.candidates = [];
+        this.handleRejected(timestamp, rms >= silenceThreshold ? "noise" : "quiet");
       }
     }
     this.frame = requestAnimationFrame(this.loop);
@@ -84,14 +138,23 @@ class TunerEngine {
   stop() {
     this.running = false;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.source?.disconnect();
+    this.highPass?.disconnect();
+    this.lowPass?.disconnect();
+    this.analyser?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.context?.close();
     this.context = null;
     this.stream = null;
+    this.source = null;
+    this.highPass = null;
+    this.lowPass = null;
     this.analyser = null;
     this.samples = null;
-    this.history = [];
-    this.onReading(null);
+    this.candidates = [];
+    this.noiseFloor = 0.004;
+    this.lastClearReason = "quiet";
+    this.onSignal({ type: "clear", reason: "quiet" });
   }
 }
 
@@ -112,8 +175,8 @@ function noteLabel(target) {
   return `${target.note}${target.octave}`;
 }
 
-function describeStatus(status: AudioStatus, reading: Reading) {
-  if (status === "listening") return reading ? "正在聆听" : "等待弹响琴弦";
+function describeStatus(status: AudioStatus, reading: Reading, hasInterference: boolean) {
+  if (status === "listening") return reading ? "正在聆听" : hasInterference ? "正在过滤干扰" : "等待弹响琴弦";
   if (status === "denied") return "未获得麦克风权限";
   if (status === "unsupported") return "当前浏览器不支持麦克风";
   if (status === "error") return "麦克风启动失败";
@@ -155,6 +218,7 @@ export function App() {
   const [automatic, setAutomatic] = useState(true);
   const [status, setStatus] = useState<AudioStatus>("idle");
   const [reading, setReading] = useState<Reading>(null);
+  const [hasInterference, setHasInterference] = useState(false);
   const [showTuningPanel, setShowTuningPanel] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
@@ -185,30 +249,33 @@ export function App() {
 
   useEffect(() => () => engineRef.current?.stop(), []);
 
-  const onPitch = useCallback((pitch: { frequency: number; clarity: number } | null) => {
-    if (!pitch) {
+  const onSignal = useCallback((event: SignalEvent) => {
+    if (event.type === "clear") {
       setReading(null);
+      setHasInterference(event.reason !== "quiet");
       return;
     }
     const tuning = tuningRef.current;
     const target = automaticRef.current
-      ? selectAutomaticTarget(tuning, pitch.frequency, selectedStringRef.current)
+      ? selectAutomaticTarget(tuning, event.frequency, selectedStringRef.current)
       : tuning.strings.find((item) => item.id === selectedStringRef.current) ?? tuning.strings[0];
     if (target.id !== selectedStringRef.current) {
       selectedStringRef.current = target.id;
       setSelectedStringId(target.id);
     }
     setReading({
-      frequency: pitch.frequency,
-      cents: centsBetween(pitch.frequency, target.frequency),
-      clarity: pitch.clarity,
+      frequency: event.frequency,
+      cents: centsBetween(event.frequency, target.frequency),
+      clarity: event.clarity,
     });
+    setHasInterference(false);
   }, []);
 
   const startListening = useCallback(async () => {
     engineRef.current?.stop();
-    const engine = new TunerEngine(onPitch);
+    const engine = new TunerEngine(onSignal);
     engineRef.current = engine;
+    setHasInterference(false);
     try {
       await engine.start();
       setStatus("listening");
@@ -222,12 +289,13 @@ export function App() {
         setStatus("error");
       }
     }
-  }, [onPitch]);
+  }, [onSignal]);
 
   const stopListening = useCallback(() => {
     engineRef.current?.stop();
     engineRef.current = null;
     setReading(null);
+    setHasInterference(false);
     setStatus("idle");
   }, []);
 
@@ -350,7 +418,7 @@ export function App() {
           </div>
           <div className="listen-control">
             <span className={`live-dot ${status === "listening" ? "is-live" : ""}`} aria-hidden="true" />
-            <span>{describeStatus(status, reading)}</span>
+            <span>{describeStatus(status, reading, hasInterference)}</span>
             <button className="mic-button" onClick={status === "listening" ? stopListening : startListening}>
               {status === "listening" ? "停止" : "启动麦克风"}
             </button>
@@ -387,7 +455,7 @@ export function App() {
             <div className="cents-value">{reading ? `${cents > 0 ? "+" : ""}${Math.round(cents)}` : "—"}</div>
             <div className="cents-label">cents</div>
           </div>
-          <div className={`direction-pill ${inTune ? "is-in-tune" : ""}`}>{direction || "弹响一根琴弦"}</div>
+          <div className={`direction-pill ${inTune ? "is-in-tune" : ""}`}>{direction || (hasInterference ? "信号不稳定，请靠近吉他并单独弹响一根弦" : "弹响一根琴弦")}</div>
         </section>
 
         <section className="instrument-zone">
