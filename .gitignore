@@ -1,0 +1,4 @@
+.DS_Store
+tuner-app/node_modules/
+tuner-app/dist/
+tuner-app/.vite/
