@@ -12,10 +12,13 @@ button { cursor: pointer; }
 
 body {
   min-width: 320px;
-  min-height: 100vh;
+  height: 100dvh;
   margin: 0;
+  overflow: hidden;
   background: #101112;
 }
+
+#root { height: 100%; }
 
 button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 3px solid #53dfbd;
@@ -23,16 +26,19 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   display: grid;
   place-items: center;
-  padding: 24px;
+  overflow: hidden;
+  padding: 16px;
   background: #101112;
 }
 
 .tuner-card {
   width: min(100%, 1080px);
-  min-height: min(820px, calc(100vh - 48px));
+  height: min(800px, 100%);
+  min-height: 0;
   overflow: hidden;
   position: relative;
   display: flex;
@@ -42,11 +48,11 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 .topbar {
-  min-height: 134px;
+  min-height: 102px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 36px 48px 14px;
+  padding: 24px 48px 8px;
   background: rgba(17, 18, 19, .92);
 }
 
@@ -61,7 +67,7 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
 .mic-button, .new-tuning-button { border: 0; color: #06271f; background: #39d9ad; font-weight: 800; }
 .mic-button { padding: 10px 14px; margin-left: 8px; border-radius: 99px; font-size: 13px; }
 
-.setting-row { display: flex; justify-content: space-between; align-items: center; padding: 0 48px 22px; background: rgba(17, 18, 19, .92); }
+.setting-row { display: flex; justify-content: space-between; align-items: center; padding: 0 48px 14px; background: rgba(17, 18, 19, .92); }
 .tuning-selector { padding: 0; border: 0; color: #f5f4f3; background: transparent; text-align: left; }
 .tuning-selector span { display: block; font-size: 19px; font-weight: 700; }
 .tuning-selector small { display: block; margin-top: 3px; color: #a8abb0; font-size: 13px; }
@@ -71,33 +77,33 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
 .switch-label input:checked { background: #24cda4; }
 .switch-label input:checked::after { transform: translateX(21px); }
 
-.pitch-zone { height: 244px; position: relative; display: grid; place-items: center; border-top: 1px solid rgba(158, 168, 176, .15); border-bottom: 1px solid rgba(158, 168, 176, .15); background-color: #151617; background-image: url("../public/assets/tuner-grid.png"); background-size: 768px auto; background-repeat: repeat; }
-.center-line { position: absolute; top: 0; left: 50%; width: 3px; height: 94px; background: #747a80; opacity: .62; }
-.accidental { position: absolute; top: 38px; color: #d0d2d7; font-size: 30px; }
+.pitch-zone { height: clamp(166px, 25vh, 208px); position: relative; display: grid; place-items: center; border-top: 1px solid rgba(158, 168, 176, .15); border-bottom: 1px solid rgba(158, 168, 176, .15); background-color: #151617; background-image: url("../public/assets/tuner-grid.png"); background-size: 680px auto; background-repeat: repeat; }
+.center-line { position: absolute; top: 0; left: 50%; width: 3px; height: 76px; background: #747a80; opacity: .62; }
+.accidental { position: absolute; top: 27px; color: #d0d2d7; font-size: 27px; }
 .accidental-flat { left: 7.2%; }
 .accidental-sharp { right: 7.2%; }
-.pitch-readout { width: 108px; height: 108px; z-index: 1; display: grid; place-content: center; color: #fff; text-align: center; border: 4px solid #ff6970; border-radius: 50%; background: #202124; box-shadow: 0 12px 28px rgba(0, 0, 0, .26); }
+.pitch-readout { width: 94px; height: 94px; z-index: 1; display: grid; place-content: center; color: #fff; text-align: center; border: 4px solid #ff6970; border-radius: 50%; background: #202124; box-shadow: 0 12px 28px rgba(0, 0, 0, .26); }
 .pitch-readout.is-in-tune { border-color: #3ce0b1; }
-.cents-value { font-size: 35px; font-weight: 800; letter-spacing: -.08em; line-height: .9; }
+.cents-value { font-size: 31px; font-weight: 800; letter-spacing: -.08em; line-height: .9; }
 .cents-label { color: #aeb2b7; font-size: 10px; letter-spacing: .12em; margin-top: 7px; text-transform: uppercase; }
-.needle-anchor { position: absolute; left: 50%; bottom: calc(50% + 55px); width: 1px; height: 49px; transform: translateX(-50%); }
-.needle { position: absolute; left: 50%; bottom: 0; width: 3px; height: 44px; transform-origin: bottom center; background: #ff6970; }
+.needle-anchor { position: absolute; left: 50%; bottom: calc(50% + 48px); width: 1px; height: 38px; transform: translateX(-50%); }
+.needle { position: absolute; left: 50%; bottom: 0; width: 3px; height: 35px; transform-origin: bottom center; background: #ff6970; }
 .pitch-readout.is-in-tune .needle { background: #3ce0b1; }
-.direction-pill { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); padding: 9px 15px; border-radius: 99px; color: #e2e4e6; background: #35383c; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.direction-pill { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 8px 14px; border-radius: 99px; color: #e2e4e6; background: #35383c; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .direction-pill.is-in-tune { color: #082c21; background: #3ce0b1; }
 
-.instrument-zone { flex: 1; min-height: 366px; display: grid; grid-template-columns: 1fr minmax(280px, 400px) 1fr; align-items: center; gap: 18px; padding: 0 60px; background: #000; }
-.headstock-wrap { height: 390px; display: grid; place-items: end center; overflow: visible; position: relative; z-index: 2; }
-.headstock-wrap img { width: min(100%, 310px); height: auto; display: block; mix-blend-mode: screen; }
-.strings-column { display: grid; gap: 24px; align-self: stretch; align-content: start; padding-top: 28px; }
+.instrument-zone { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(280px, 400px) 1fr; align-items: center; gap: 18px; padding: 0 60px; background: #000; }
+.headstock-wrap { height: 100%; min-height: 0; display: grid; place-items: end center; overflow: hidden; position: relative; z-index: 2; }
+.headstock-wrap img { width: min(100%, 310px); max-height: 100%; height: auto; display: block; object-fit: contain; mix-blend-mode: screen; }
+.strings-column { display: grid; gap: clamp(14px, 3vh, 22px); align-self: stretch; align-content: start; padding-top: clamp(12px, 2vh, 22px); }
 .strings-left { justify-items: end; }
 .strings-right { justify-items: start; }
-.string-button { width: 68px; height: 58px; display: inline-flex; align-items: baseline; justify-content: center; gap: 2px; border: 1px solid transparent; border-radius: 50%; color: #fff; background: #2d2f34; font-size: 19px; transition: background .15s ease, transform .15s ease; }
+.string-button { width: 62px; height: 54px; display: inline-flex; align-items: baseline; justify-content: center; gap: 2px; border: 1px solid transparent; border-radius: 50%; color: #fff; background: #2d2f34; font-size: 18px; transition: background .15s ease, transform .15s ease; }
 .string-button:hover { transform: translateY(-2px); background: #42454b; }
 .string-button.is-selected { border-color: #54ddbb; color: #0c2c22; background: #58e2bc; }
 .string-button small { font-size: 11px; }
 
-.tuner-footer { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 15px 48px; background: #18191b; border-top: 1px solid rgba(220, 225, 228, .1); }
+.tuner-footer { min-height: 58px; display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 10px 48px; background: #18191b; border-top: 1px solid rgba(220, 225, 228, .1); }
 .tuner-footer div { display: flex; flex-direction: column; gap: 3px; }
 .tuner-footer strong { font-size: 19px; }
 .tuner-footer span { color: #979ca2; font-size: 12px; }
@@ -138,24 +144,25 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
 
 @media (max-width: 700px) {
   .app-shell { padding: 0; }
-  .tuner-card { min-height: 100vh; width: 100%; }
-  .topbar { min-height: 116px; padding: 25px 22px 12px; }
+  .tuner-card { height: 100%; min-height: 0; width: 100%; }
+  .topbar { min-height: 92px; padding: 18px 22px 6px; }
   .listen-control { align-items: flex-end; flex-direction: column; font-size: 11px; }
   .mic-button { margin: 0; padding: 8px 10px; }
-  .setting-row { padding: 0 22px 20px; }
-  .pitch-zone { height: 218px; }
-  .instrument-zone { min-height: 360px; grid-template-columns: 70px minmax(190px, 1fr) 70px; gap: 4px; padding: 0 15px; }
-  .headstock-wrap { height: 350px; }
+  .setting-row { padding: 0 22px 12px; }
+  .pitch-zone { height: clamp(154px, 22vh, 184px); }
+  .center-line { height: 61px; }
+  .accidental { top: 20px; font-size: 24px; }
+  .instrument-zone { grid-template-columns: 70px minmax(190px, 1fr) 70px; gap: 4px; padding: 0 15px; }
   .headstock-wrap img { width: 330px; }
   .string-button { width: 52px; height: 50px; font-size: 16px; }
-  .strings-column { gap: 23px; }
-  .tuner-footer { padding: 14px 22px; }
+  .strings-column { gap: clamp(12px, 2.7vh, 20px); padding-top: 12px; }
+  .tuner-footer { min-height: 54px; padding: 8px 22px; }
   .tuner-footer span { max-width: 180px; }
 }
 
 @media (max-width: 800px) and (min-width: 701px) {
   .app-shell { padding: 0; }
-  .tuner-card { width: 100%; min-height: 100vh; }
+  .tuner-card { width: 100%; height: 100%; min-height: 0; }
   .topbar { padding-inline: 36px; }
   .setting-row { padding-inline: 36px; }
   .instrument-zone { padding-inline: 35px; }
