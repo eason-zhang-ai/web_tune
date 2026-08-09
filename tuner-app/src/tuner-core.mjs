@@ -1,8 +1,15 @@
 export const A4_FREQUENCY = 440;
 export const IN_TUNE_CENTS = 5;
-export const GUITAR_MIN_FREQUENCY = 70;
-export const GUITAR_MAX_FREQUENCY = 420;
-export const QUALITY_CLARITY_THRESHOLD = 0.78;
+// Detection window must cover custom tunings: low strings such as Drop C
+// (C2 ≈ 65.4 Hz) or baritone B1 ≈ 61.7 Hz down to A1 = 55 Hz, and high
+// strings up to A4 = 440 Hz.
+export const GUITAR_MIN_FREQUENCY = 55;
+export const GUITAR_MAX_FREQUENCY = 450;
+// Keep the clarity gate at the historical 0.72: low strings are
+// harmonic-rich and their autocorrelation peak is naturally weaker, so a
+// stricter gate rejects real playing. Steadiness is enforced separately by
+// the multi-frame stability check.
+export const QUALITY_CLARITY_THRESHOLD = 0.72;
 export const TRUSTED_READING_HOLD_MS = 520;
 
 const NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
@@ -109,6 +116,16 @@ export function adaptiveSilenceThreshold(noiseFloor, options = {}) {
   const maximum = options.maximum ?? 0.08;
   const multiplier = options.multiplier ?? 2.4;
   return Math.max(minimum, Math.min(maximum, noiseFloor * multiplier));
+}
+
+// The noise floor may only learn from genuinely quiet frames. A loud frame
+// without a pitch is usually a real string that failed the clarity or
+// stability gate; feeding its RMS into the floor inflates the silence
+// threshold until genuine plucks are muted, and the slow falling rate makes
+// the engine unresponsive for seconds afterwards.
+export function learnNoiseFloorFromFrame(noiseFloor, rms, options = {}) {
+  if (rms >= adaptiveSilenceThreshold(noiseFloor, options)) return noiseFloor;
+  return updateAdaptiveNoiseFloor(noiseFloor, rms, options);
 }
 
 export function hasStablePitchFrequencies(frequencies, requiredFrames = 3, maximumCents = 35) {

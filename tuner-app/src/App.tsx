@@ -11,13 +11,13 @@ import {
   detectPitchAutoCorrelation,
   hasStablePitchFrequencies,
   isTrustedReadingExpired,
+  learnNoiseFloorFromFrame,
   median,
   normalizeCustomTuning,
   normalizeImportedTunings,
   portableTuning,
   rmsForBuffer,
   selectAutomaticTarget,
-  updateAdaptiveNoiseFloor,
 } from "./tuner-core.mjs";
 
 const CUSTOM_TUNINGS_KEY = "guitar-tuner.custom-tunings.v1";
@@ -48,6 +48,7 @@ class TunerEngine {
   lastRead = 0;
   samples: Float32Array | null = null;
   candidates: Array<{ frequency: number; clarity: number }> = [];
+  missedFrames = 0;
   noiseFloor = 0.004;
   lastTrustedAt = 0;
   lastClearReason: SignalReason | null = null;
@@ -112,6 +113,7 @@ class TunerEngine {
         rms,
       });
       if (pitch) {
+        this.missedFrames = 0;
         this.candidates.push({ frequency: pitch.frequency, clarity: pitch.clarity });
         if (this.candidates.length > 3) this.candidates.shift();
         const frequencies = this.candidates.map((candidate) => candidate.frequency);
@@ -127,8 +129,13 @@ class TunerEngine {
           this.handleRejected(timestamp, "unstable");
         }
       } else {
-        this.noiseFloor = updateAdaptiveNoiseFloor(this.noiseFloor, rms);
-        this.candidates = [];
+        // Only quiet frames teach the noise floor; a loud frame without a
+        // pitch is usually a real string that failed a gate.
+        this.noiseFloor = learnNoiseFloorFromFrame(this.noiseFloor, rms);
+        // Tolerate a single dropped frame so borderline strings can still
+        // accumulate three stable candidates; reset after consecutive misses.
+        this.missedFrames += 1;
+        if (this.missedFrames >= 2) this.candidates = [];
         this.handleRejected(timestamp, rms >= silenceThreshold ? "noise" : "quiet");
       }
     }
@@ -152,6 +159,7 @@ class TunerEngine {
     this.analyser = null;
     this.samples = null;
     this.candidates = [];
+    this.missedFrames = 0;
     this.noiseFloor = 0.004;
     this.lastClearReason = "quiet";
     this.onSignal({ type: "clear", reason: "quiet" });

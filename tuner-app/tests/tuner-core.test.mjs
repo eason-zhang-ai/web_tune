@@ -9,6 +9,7 @@ import {
   frequencyForMidi,
   hasStablePitchFrequencies,
   isTrustedReadingExpired,
+  learnNoiseFloorFromFrame,
   midiForFrequency,
   nearestStringTarget,
   normalizeImportedTunings,
@@ -59,6 +60,26 @@ test("autocorrelation detects low and high standard guitar strings from syntheti
     assert.ok(pitch, `expected ${frequency} Hz to be detected`);
     assert.ok(Math.abs(pitch.frequency - frequency) / frequency < 0.008, `${frequency} Hz should stay accurate`);
   }
+});
+
+test("detection window covers low custom tunings and high custom strings", () => {
+  // B1 (baritone), C2 (Drop C) and A4 sit outside the old 70–420 Hz window.
+  for (const frequency of [61.7354, 65.4064, 440]) {
+    const pitch = detectPitchAutoCorrelation(sineWave(frequency), 44100);
+    assert.ok(pitch, `expected ${frequency} Hz to be detected`);
+    assert.ok(Math.abs(pitch.frequency - frequency) / frequency < 0.012, `${frequency} Hz should stay accurate`);
+  }
+});
+
+test("noise floor never learns from loud frames that may be real strings", () => {
+  let floor = 0.004;
+  // A loud pluck that failed the clarity gate must not raise the floor.
+  for (let index = 0; index < 20; index += 1) floor = learnNoiseFloorFromFrame(floor, 0.05);
+  assert.equal(floor, 0.004);
+  assert.ok(adaptiveSilenceThreshold(floor) < 0.05);
+  // Genuinely quiet ambient frames still adapt the floor as before.
+  const learned = learnNoiseFloorFromFrame(floor, 0.006);
+  assert.ok(learned > floor);
 });
 
 test("quality gate keeps guitar tones with mixed noise and rejects unpitched noise", () => {
