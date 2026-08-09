@@ -8,6 +8,8 @@ import {
   detectPitchAutoCorrelation,
   median,
   normalizeCustomTuning,
+  normalizeImportedTunings,
+  portableTuning,
   selectAutomaticTarget,
 } from "./tuner-core.mjs";
 
@@ -118,6 +120,32 @@ function describeStatus(status: AudioStatus, reading: Reading) {
   return "尚未启动麦克风";
 }
 
+function githubRawUrl(value: string) {
+  const url = new URL(value.trim());
+  if (url.protocol !== "https:") throw new Error("请使用 HTTPS GitHub 链接");
+  if (url.hostname === "raw.githubusercontent.com" || url.hostname === "gist.githubusercontent.com") return url.href;
+  if (url.hostname === "gist.github.com") {
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)$/);
+    if (!match) throw new Error("请粘贴单文件 Gist 页面或 Gist Raw 链接");
+    return `https://gist.githubusercontent.com/${match[1]}/${match[2]}/raw`;
+  }
+  if (url.hostname !== "github.com") throw new Error("仅支持 GitHub 或 GitHub Gist 链接");
+  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/);
+  if (!match) throw new Error("请粘贴 GitHub 文件页（.../blob/...）或 Raw 链接");
+  const [, owner, repository, branch, filePath] = match;
+  return `https://raw.githubusercontent.com/${owner}/${repository}/${branch}/${filePath}`;
+}
+
+function customTuningId(existing: Array<{ id: string }>) {
+  let sequence = 0;
+  let id = `custom-${Date.now()}`;
+  while (existing.some((item) => item.id === id)) {
+    sequence += 1;
+    id = `custom-${Date.now()}-${sequence}`;
+  }
+  return id;
+}
+
 export function App() {
   const [customTunings, setCustomTunings] = useState(() => readCustomTunings());
   const allTunings = useMemo(() => [...BUILT_IN_TUNINGS, ...customTunings], [customTunings]);
@@ -129,8 +157,13 @@ export function App() {
   const [reading, setReading] = useState<Reading>(null);
   const [showTuningPanel, setShowTuningPanel] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [showImporter, setShowImporter] = useState(false);
+  const [editingTuningId, setEditingTuningId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("我的调弦");
   const [draftStrings, setDraftStrings] = useState(() => activeTuning.strings.map(({ note, octave }) => ({ note, octave })));
+  const [importUrl, setImportUrl] = useState("");
+  const [importMessage, setImportMessage] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const engineRef = useRef<TunerEngine | null>(null);
   const tuningRef = useRef(activeTuning);
   const automaticRef = useRef(automatic);
@@ -213,23 +246,83 @@ export function App() {
     setShowTuningPanel(false);
   };
 
-  const resetDraft = () => {
+  const startNewDraft = () => {
+    setEditingTuningId(null);
     setDraftName("我的调弦");
     setDraftStrings(activeTuning.strings.map(({ note, octave }) => ({ note, octave })));
     setShowEditor(true);
   };
 
+  const editDraft = (tuning) => {
+    setEditingTuningId(tuning.id);
+    setDraftName(tuning.name);
+    setDraftStrings(tuning.strings.map(({ note, octave }) => ({ note, octave })));
+    setShowEditor(true);
+  };
+
   const saveDraft = () => {
     const name = draftName.trim() || "我的调弦";
-    const id = `custom-${Date.now()}`;
+    const id = editingTuningId ?? customTuningId(customTunings);
     const tuning = createTuning(id, name, draftStrings.map((item) => [item.note, Number(item.octave)]), "custom");
-    const next = [...customTunings, tuning];
+    const next = editingTuningId
+      ? customTunings.map((item) => item.id === editingTuningId ? tuning : item)
+      : [...customTunings, tuning];
     setCustomTunings(next);
     saveCustomTunings(next);
     setSelectedTuningId(tuning.id);
     setShowEditor(false);
     setShowTuningPanel(false);
     setAutomatic(true);
+  };
+
+  const exportCustomTuning = (tuning) => {
+    const blob = new Blob([`${JSON.stringify(portableTuning(tuning), null, 2)}\n`], { type: "application/json" });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = tuning.name.replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-").replace(/(^-|-$)/g, "") || "custom-tuning";
+    link.href = objectUrl;
+    link.download = `${filename}.web-tune.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  };
+
+  const openImporter = () => {
+    setImportMessage("");
+    setShowTuningPanel(false);
+    setShowImporter(true);
+  };
+
+  const importFromGitHub = async () => {
+    setImportMessage("");
+    setIsImporting(true);
+    try {
+      const response = await fetch(githubRawUrl(importUrl), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`GitHub 返回 ${response.status}`);
+      const payload = await response.json();
+      const imported = normalizeImportedTunings(payload);
+      if (!imported.length) throw new Error("配置需要包含名称和 6 根有效琴弦");
+      const added = imported.reduce((items, item) => {
+        items.push(createTuning(
+          customTuningId([...customTunings, ...items]),
+          item.name,
+          item.strings.map(({ note, octave }) => [note, octave]),
+          "custom",
+        ));
+        return items;
+      }, []);
+      const next = [...customTunings, ...added];
+      setCustomTunings(next);
+      saveCustomTunings(next);
+      setSelectedTuningId(added[0].id);
+      setAutomatic(true);
+      setImportMessage(`已导入 ${added.length} 个调弦方案，并保存到本机。`);
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : "导入失败，请检查链接和 JSON 配置");
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const removeCustomTuning = (id) => {
@@ -359,12 +452,19 @@ export function App() {
                     <button className={`tuning-option ${activeTuning.id === tuning.id ? "is-active" : ""}`} onClick={() => chooseTuning(tuning.id)}>
                       <span>{tuning.name}</span><small>{tuning.strings.map(noteLabel).join(" · ")}</small>
                     </button>
-                    <button className="delete-button" onClick={() => removeCustomTuning(tuning.id)}>删除</button>
+                    <div className="custom-actions">
+                      <button className="edit-button" onClick={() => editDraft(tuning)}>编辑</button>
+                      <button className="edit-button" onClick={() => exportCustomTuning(tuning)}>导出</button>
+                      <button className="delete-button" onClick={() => removeCustomTuning(tuning.id)}>删除</button>
+                    </div>
                   </div>
                 ))}
               </div>
             </>}
-            <button className="new-tuning-button" onClick={resetDraft}>创建自定义调弦</button>
+            <div className="library-actions">
+              <button className="secondary-button" onClick={openImporter}>从 GitHub 导入</button>
+              <button className="new-tuning-button" onClick={startNewDraft}>创建自定义调弦</button>
+            </div>
           </section>
         </div>
       )}
@@ -387,7 +487,20 @@ export function App() {
                 </div>
               ))}
             </div>
-            <button className="new-tuning-button" onClick={saveDraft}>保存到本机</button>
+            <button className="new-tuning-button" onClick={saveDraft}>{editingTuningId ? "保存修改" : "保存到本机"}</button>
+          </section>
+        </div>
+      )}
+
+      {showImporter && (
+        <div className="modal-backdrop editor-layer" role="presentation" onMouseDown={() => setShowImporter(false)}>
+          <section className="tuning-panel import-panel" role="dialog" aria-modal="true" aria-labelledby="import-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="panel-heading"><div><p className="eyebrow">GITHUB IMPORT</p><h2 id="import-title">导入调弦配置</h2></div><button className="close-button" onClick={() => setShowImporter(false)}>关闭</button></div>
+            <p className="import-copy">粘贴 GitHub 文件页、Raw 链接或单文件 Gist 的 JSON 链接。读取只发生在当前浏览器，导入后仅保存到本机。</p>
+            <label className="name-field">GitHub 配置链接<textarea value={importUrl} rows={4} placeholder="https://github.com/owner/repo/blob/main/tuning.json" onChange={(event) => setImportUrl(event.target.value)} /></label>
+            <p className="import-example">支持单个配置，或 <code>{'{ "tunings": [...] }'}</code> 格式。可先导出本机方案，再将 JSON 上传到 GitHub 共享。</p>
+            {importMessage && <p className={`import-message ${importMessage.startsWith("已导入") ? "is-success" : ""}`}>{importMessage}</p>}
+            <button className="new-tuning-button" disabled={isImporting || !importUrl.trim()} onClick={importFromGitHub}>{isImporting ? "正在导入…" : "导入到本机"}</button>
           </section>
         </div>
       )}

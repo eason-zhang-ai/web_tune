@@ -101,7 +101,7 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
 .tuner-footer div { display: flex; flex-direction: column; gap: 3px; }
 .tuner-footer strong { font-size: 19px; }
 .tuner-footer span { color: #979ca2; font-size: 12px; }
-.text-button, .close-button, .delete-button { border: 0; background: transparent; color: #c8cbcf; font-weight: 700; }
+.text-button, .close-button, .delete-button, .edit-button { border: 0; background: transparent; color: #c8cbcf; font-weight: 700; }
 .text-button { color: #59e1bc; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .74); }
@@ -114,11 +114,24 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
 .tuning-option small { color: #a7acb2; font-size: 12px; }
 .section-label { margin: 25px 0 9px; color: #aab0b4; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .custom-option { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-.delete-button { padding: 0 12px; color: #ff9ba0; background: #2a2426; }
+.custom-actions { display: grid; grid-template-columns: repeat(3, auto); gap: 6px; }
+.edit-button, .delete-button { padding: 0 11px; background: #282b2f; font-size: 12px; }
+.edit-button { color: #8ce7cf; }
+.delete-button { color: #ff9ba0; background: #2a2426; }
+.library-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+.library-actions .new-tuning-button { margin-top: 0; }
+.secondary-button { border: 1px solid #4d5657; color: #b8c5c2; background: transparent; font-weight: 800; font-size: 14px; }
 .new-tuning-button { width: 100%; margin-top: 22px; padding: 14px; font-size: 15px; }
+.new-tuning-button:disabled { cursor: not-allowed; opacity: .55; }
 .editor-layer { z-index: 11; }
 .name-field { display: grid; gap: 8px; color: #dadde0; font-size: 13px; font-weight: 700; }
 .name-field input { width: 100%; border: 1px solid #45494f; padding: 12px; color: #fff; background: #171819; }
+.name-field textarea { width: 100%; resize: vertical; border: 1px solid #45494f; padding: 12px; color: #fff; background: #171819; line-height: 1.45; }
+.import-copy { margin: -6px 0 20px; color: #c5c9cd; font-size: 14px; line-height: 1.55; }
+.import-example { margin: 13px 0 0; color: #92989f; font-size: 12px; line-height: 1.55; }
+.import-example code { color: #9cead5; }
+.import-message { margin: 16px 0 -5px; color: #ffaaa9; font-size: 13px; font-weight: 700; line-height: 1.45; }
+.import-message.is-success { color: #64e0bc; }
 .string-editor { display: grid; gap: 7px; margin: 21px 0 0; }
 .string-editor-row { display: grid; grid-template-columns: 1fr 120px 90px; gap: 9px; align-items: center; padding: 8px 0; color: #ccd0d4; font-size: 14px; }
 .string-editor-row select { border: 1px solid #45494f; padding: 8px; color: #fff; background: #2a2c30; }
@@ -156,4 +169,7 @@ h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
   .headstock-wrap img { width: 290px; }
   .string-button { width: 48px; height: 47px; }
   .string-editor-row { grid-template-columns: 1fr 78px 64px; }
+  .custom-option { grid-template-columns: 1fr; }
+  .custom-actions { grid-template-columns: repeat(3, 1fr); }
+  .edit-button, .delete-button { min-height: 36px; }
 }

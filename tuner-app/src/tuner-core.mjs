@@ -162,3 +162,38 @@ export function normalizeCustomTuning(value) {
   if (!isCustomTuning(value)) return null;
   return createTuning(value.id, value.name.slice(0, 24), value.strings.map((item) => [item.note, item.octave]), "custom");
 }
+
+function hasPortableTuningShape(value) {
+  return Boolean(
+    value
+      && typeof value.name === "string"
+      && Array.isArray(value.strings)
+      && value.strings.length === 6
+      && value.strings.every((item) => NOTE_NAMES.includes(item.note) && Number.isInteger(item.octave)),
+  );
+}
+
+export function normalizeImportedTunings(value) {
+  const candidates = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.tunings)
+      ? value.tunings
+      : [value];
+  return candidates
+    .filter(hasPortableTuningShape)
+    .map((item) => ({
+      name: item.name.trim().slice(0, 24) || "导入的调弦",
+      strings: item.strings.map(({ note, octave }) => ({ note, octave })),
+    }));
+}
+
+export function portableTuning(tuning) {
+  return {
+    format: "web-tune/tuning",
+    version: 1,
+    tunings: [{
+      name: tuning.name,
+      strings: tuning.strings.map(({ note, octave }) => ({ note, octave })),
+    }],
+  };
+}

@@ -7,6 +7,8 @@ import {
   frequencyForMidi,
   midiForFrequency,
   nearestStringTarget,
+  normalizeImportedTunings,
+  portableTuning,
   selectAutomaticTarget,
 } from "../src/tuner-core.mjs";
 
@@ -40,4 +42,13 @@ test("nearest target and hysteresis avoid unnecessary string hopping", () => {
   assert.equal(closest.target.note, "A");
   const retained = selectAutomaticTarget(standard, 123, standard.strings[1].id);
   assert.equal(retained.id, standard.strings[1].id);
+});
+
+test("portable tuning payloads can be imported while malformed data is ignored", () => {
+  const portable = portableTuning(BUILT_IN_TUNINGS[0]);
+  const imported = normalizeImportedTunings(portable);
+  assert.equal(imported.length, 1);
+  assert.equal(imported[0].name, "标准");
+  assert.deepEqual(imported[0].strings.map((item) => `${item.note}${item.octave}`), ["E2", "A2", "D3", "G3", "B3", "E4"]);
+  assert.deepEqual(normalizeImportedTunings({ name: "坏配置", strings: [] }), []);
 });
