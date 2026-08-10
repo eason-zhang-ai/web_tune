@@ -14,6 +14,7 @@ import {
   nearestStringTarget,
   normalizeImportedTunings,
   portableTuning,
+  resolveOctaveFundamental,
   rmsForBuffer,
   selectAutomaticTarget,
   updateAdaptiveNoiseFloor,
@@ -30,6 +31,17 @@ function weakHarmonicWave(frequency, sampleRate = 44100, length = 8192) {
       Math.sin(2 * Math.PI * frequency * time)
       + 0.45 * Math.sin(2 * Math.PI * frequency * 2 * time)
       + 0.2 * Math.sin(2 * Math.PI * frequency * 3 * time)
+    );
+  });
+}
+
+function octaveTrapWave(frequency, sampleRate = 44100, length = 8192) {
+  return Float32Array.from({ length }, (_, index) => {
+    const time = index / sampleRate;
+    return 0.018 * (
+      0.1 * Math.sin(2 * Math.PI * frequency * time)
+      + 1.7 * Math.sin(2 * Math.PI * frequency * 2 * time)
+      + 0.5 * Math.sin(2 * Math.PI * frequency * 3 * time)
     );
   });
 }
@@ -86,17 +98,31 @@ test("weak but periodic guitar signals pass the initial silence gate", () => {
   const weakLowE = weakHarmonicWave(82.4069);
   const pitch = detectPitchAutoCorrelation(weakLowE, 44100, {
     clarityThreshold: QUALITY_CLARITY_THRESHOLD,
-    silenceThreshold: adaptiveSilenceThreshold(0.0015),
+    silenceThreshold: adaptiveSilenceThreshold(0.00075),
     rms: rmsForBuffer(weakLowE),
   });
   assert.ok(pitch);
   assert.ok(Math.abs(pitch.frequency - 82.4069) / 82.4069 < 0.012);
 });
 
+test("harmonic evidence corrects an octave-up C3 candidate without lowering true C4", () => {
+  const c3 = 130.8128;
+  const harmonicHeavyC3 = octaveTrapWave(c3);
+  const detected = detectPitchAutoCorrelation(harmonicHeavyC3, 44100, {
+    silenceThreshold: adaptiveSilenceThreshold(0.00075),
+    rms: rmsForBuffer(harmonicHeavyC3),
+  });
+  assert.ok(detected);
+  assert.ok(Math.abs(detected.frequency - c3) / c3 < 0.012);
+
+  const c4 = sineWave(c3 * 2);
+  assert.ok(Math.abs(resolveOctaveFundamental(c4, 44100, c3 * 2) - c3 * 2) / (c3 * 2) < 0.001);
+});
+
 test("noise floor learns sustained moderate noise but ignores loud plucks", () => {
-  let floor = 0.0015;
+  let floor = 0.00075;
   for (let index = 0; index < 20; index += 1) floor = learnNoiseFloorFromFrame(floor, 0.008);
-  assert.ok(floor > 0.0015);
+  assert.ok(floor > 0.00075);
   const learnedFloor = floor;
   // A loud pluck that failed the clarity gate must not raise the floor.
   for (let index = 0; index < 20; index += 1) floor = learnNoiseFloorFromFrame(floor, 0.05);
@@ -121,12 +147,12 @@ test("quality gate keeps guitar tones with mixed noise and rejects unpitched noi
 });
 
 test("adaptive gate learns rejected background noise without muting quiet rooms", () => {
-  let floor = 0.0015;
+  let floor = 0.00075;
   for (let index = 0; index < 8; index += 1) floor = updateAdaptiveNoiseFloor(floor, 0.02);
   assert.ok(adaptiveSilenceThreshold(floor) > 0.02);
   const quieterFloor = updateAdaptiveNoiseFloor(floor, 0.003);
   assert.ok(quieterFloor < floor);
-  assert.equal(adaptiveSilenceThreshold(0.001), 0.003);
+  assert.equal(adaptiveSilenceThreshold(0.001), 0.0015);
 });
 
 test("nearest target and hysteresis avoid unnecessary string hopping", () => {

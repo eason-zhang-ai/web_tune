@@ -49,7 +49,7 @@ class TunerEngine {
   samples: Float32Array | null = null;
   candidates: Array<{ frequency: number; clarity: number }> = [];
   missedFrames = 0;
-  noiseFloor = 0.0015;
+  noiseFloor = 0.00075;
   lastTrustedAt = 0;
   lastClearReason: SignalReason | null = null;
   running = false;
@@ -163,7 +163,7 @@ class TunerEngine {
     this.samples = null;
     this.candidates = [];
     this.missedFrames = 0;
-    this.noiseFloor = 0.0015;
+    this.noiseFloor = 0.00075;
     this.lastClearReason = "quiet";
     this.onSignal({ type: "clear", reason: "quiet" });
   }

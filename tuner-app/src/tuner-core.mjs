@@ -101,7 +101,7 @@ export function rmsForBuffer(buffer) {
 }
 
 export function updateAdaptiveNoiseFloor(noiseFloor, rms, options = {}) {
-  const initialFloor = options.initialFloor ?? 0.0015;
+  const initialFloor = options.initialFloor ?? 0.00075;
   const maximumFloor = options.maximumFloor ?? 0.08;
   const risingRate = options.risingRate ?? 0.18;
   const fallingRate = options.fallingRate ?? 0.025;
@@ -112,7 +112,7 @@ export function updateAdaptiveNoiseFloor(noiseFloor, rms, options = {}) {
 }
 
 export function adaptiveSilenceThreshold(noiseFloor, options = {}) {
-  const minimum = options.minimum ?? 0.003;
+  const minimum = options.minimum ?? 0.0015;
   const maximum = options.maximum ?? 0.08;
   const multiplier = options.multiplier ?? 1.5;
   return Math.max(minimum, Math.min(maximum, noiseFloor * multiplier));
@@ -143,6 +143,42 @@ export function hasStablePitchFrequencies(frequencies, requiredFrames = 3, maxim
 
 export function isTrustedReadingExpired(lastTrustedAt, timestamp, holdMs = TRUSTED_READING_HOLD_MS) {
   return timestamp - lastTrustedAt > holdMs;
+}
+
+function frequencyEnergy(buffer, sampleRate, frequency) {
+  const coefficient = 2 * Math.cos((2 * Math.PI * frequency) / sampleRate);
+  let previous = 0;
+  let previousPrevious = 0;
+  for (let index = 0; index < buffer.length; index += 1) {
+    const current = buffer[index] + coefficient * previous - previousPrevious;
+    previousPrevious = previous;
+    previous = current;
+  }
+  return Math.max(0, previousPrevious ** 2 + previous ** 2 - coefficient * previous * previousPrevious);
+}
+
+function harmonicEnergyScore(buffer, sampleRate, frequency, maximumFrequency) {
+  let score = 0;
+  for (let harmonic = 1; harmonic <= 4; harmonic += 1) {
+    const harmonicFrequency = frequency * harmonic;
+    if (harmonicFrequency > maximumFrequency) break;
+    score += frequencyEnergy(buffer, sampleRate, harmonicFrequency);
+  }
+  return score;
+}
+
+export function resolveOctaveFundamental(buffer, sampleRate, frequency, options = {}) {
+  const minFrequency = options.minFrequency ?? GUITAR_MIN_FREQUENCY;
+  const maximumHarmonicFrequency = options.maximumHarmonicFrequency ?? 550;
+  const lowerOctave = frequency / 2;
+  if (lowerOctave < minFrequency) return frequency;
+
+  const candidateScore = harmonicEnergyScore(buffer, sampleRate, frequency, maximumHarmonicFrequency);
+  const lowerOctaveScore = harmonicEnergyScore(buffer, sampleRate, lowerOctave, maximumHarmonicFrequency);
+  // A true high note and its subharmonic have comparable scores. Switch down
+  // only when the harmonic stack provides clear extra evidence of a lower
+  // fundamental, which avoids turning E4/C4 into an octave too low.
+  return lowerOctaveScore > candidateScore * 1.06 ? lowerOctave : frequency;
 }
 
 export function detectPitchAutoCorrelation(buffer, sampleRate, options = {}) {
@@ -202,7 +238,8 @@ export function detectPitchAutoCorrelation(buffer, sampleRate, options = {}) {
     ? 0.5 * (previous - next) / denominator
     : 0;
   const lag = candidateLag + Math.max(-0.5, Math.min(0.5, adjustment));
-  const frequency = sampleRate / lag;
+  const candidateFrequency = sampleRate / lag;
+  const frequency = resolveOctaveFundamental(buffer, sampleRate, candidateFrequency, { minFrequency });
   if (frequency < minFrequency || frequency > maxFrequency * 1.08) return null;
   return { frequency, clarity: candidateCorrelation, rms };
 }
