@@ -49,7 +49,7 @@ class TunerEngine {
   samples: Float32Array | null = null;
   candidates: Array<{ frequency: number; clarity: number }> = [];
   missedFrames = 0;
-  noiseFloor = 0.004;
+  noiseFloor = 0.0015;
   lastTrustedAt = 0;
   lastClearReason: SignalReason | null = null;
   running = false;
@@ -75,11 +75,11 @@ class TunerEngine {
     this.source = this.context.createMediaStreamSource(this.stream);
     this.highPass = this.context.createBiquadFilter();
     this.highPass.type = "highpass";
-    this.highPass.frequency.value = 65;
+    this.highPass.frequency.value = 45;
     this.highPass.Q.value = 0.707;
     this.lowPass = this.context.createBiquadFilter();
     this.lowPass.type = "lowpass";
-    this.lowPass.frequency.value = 450;
+    this.lowPass.frequency.value = 550;
     this.lowPass.Q.value = 0.707;
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 8192;
@@ -117,7 +117,7 @@ class TunerEngine {
         this.candidates.push({ frequency: pitch.frequency, clarity: pitch.clarity });
         if (this.candidates.length > 3) this.candidates.shift();
         const frequencies = this.candidates.map((candidate) => candidate.frequency);
-        if (hasStablePitchFrequencies(frequencies)) {
+        if (hasStablePitchFrequencies(frequencies, 2)) {
           this.lastTrustedAt = timestamp;
           this.lastClearReason = null;
           this.onSignal({
@@ -131,10 +131,13 @@ class TunerEngine {
       } else {
         // Only quiet frames teach the noise floor; a loud frame without a
         // pitch is usually a real string that failed a gate.
-        this.noiseFloor = learnNoiseFloorFromFrame(this.noiseFloor, rms);
-        // Tolerate a single dropped frame so borderline strings can still
-        // accumulate three stable candidates; reset after consecutive misses.
+        // Let a string attack settle before using rejected frames to learn
+        // ambient noise. This keeps a weak first pluck from raising its own
+        // silence threshold.
         this.missedFrames += 1;
+        if (this.missedFrames >= 4) this.noiseFloor = learnNoiseFloorFromFrame(this.noiseFloor, rms);
+        // Tolerate a single dropped frame so borderline strings can still
+        // accumulate stable candidates; reset after consecutive misses.
         if (this.missedFrames >= 2) this.candidates = [];
         this.handleRejected(timestamp, rms >= silenceThreshold ? "noise" : "quiet");
       }
@@ -160,7 +163,7 @@ class TunerEngine {
     this.samples = null;
     this.candidates = [];
     this.missedFrames = 0;
-    this.noiseFloor = 0.004;
+    this.noiseFloor = 0.0015;
     this.lastClearReason = "quiet";
     this.onSignal({ type: "clear", reason: "quiet" });
   }

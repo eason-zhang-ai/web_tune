@@ -23,6 +23,17 @@ function sineWave(frequency, sampleRate = 44100, length = 8192) {
   return Float32Array.from({ length }, (_, index) => Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 0.7);
 }
 
+function weakHarmonicWave(frequency, sampleRate = 44100, length = 8192) {
+  return Float32Array.from({ length }, (_, index) => {
+    const time = index / sampleRate;
+    return 0.006 * (
+      Math.sin(2 * Math.PI * frequency * time)
+      + 0.45 * Math.sin(2 * Math.PI * frequency * 2 * time)
+      + 0.2 * Math.sin(2 * Math.PI * frequency * 3 * time)
+    );
+  });
+}
+
 function noisySineWave(frequency, sampleRate = 44100, length = 8192) {
   let seed = 42;
   return Float32Array.from({ length }, (_, index) => {
@@ -71,15 +82,26 @@ test("detection window covers low custom tunings and high custom strings", () =>
   }
 });
 
-test("noise floor never learns from loud frames that may be real strings", () => {
-  let floor = 0.004;
+test("weak but periodic guitar signals pass the initial silence gate", () => {
+  const weakLowE = weakHarmonicWave(82.4069);
+  const pitch = detectPitchAutoCorrelation(weakLowE, 44100, {
+    clarityThreshold: QUALITY_CLARITY_THRESHOLD,
+    silenceThreshold: adaptiveSilenceThreshold(0.0015),
+    rms: rmsForBuffer(weakLowE),
+  });
+  assert.ok(pitch);
+  assert.ok(Math.abs(pitch.frequency - 82.4069) / 82.4069 < 0.012);
+});
+
+test("noise floor learns sustained moderate noise but ignores loud plucks", () => {
+  let floor = 0.0015;
+  for (let index = 0; index < 20; index += 1) floor = learnNoiseFloorFromFrame(floor, 0.008);
+  assert.ok(floor > 0.0015);
+  const learnedFloor = floor;
   // A loud pluck that failed the clarity gate must not raise the floor.
   for (let index = 0; index < 20; index += 1) floor = learnNoiseFloorFromFrame(floor, 0.05);
-  assert.equal(floor, 0.004);
+  assert.equal(floor, learnedFloor);
   assert.ok(adaptiveSilenceThreshold(floor) < 0.05);
-  // Genuinely quiet ambient frames still adapt the floor as before.
-  const learned = learnNoiseFloorFromFrame(floor, 0.006);
-  assert.ok(learned > floor);
 });
 
 test("quality gate keeps guitar tones with mixed noise and rejects unpitched noise", () => {
@@ -99,12 +121,12 @@ test("quality gate keeps guitar tones with mixed noise and rejects unpitched noi
 });
 
 test("adaptive gate learns rejected background noise without muting quiet rooms", () => {
-  let floor = 0.004;
-  for (let index = 0; index < 5; index += 1) floor = updateAdaptiveNoiseFloor(floor, 0.02);
+  let floor = 0.0015;
+  for (let index = 0; index < 8; index += 1) floor = updateAdaptiveNoiseFloor(floor, 0.02);
   assert.ok(adaptiveSilenceThreshold(floor) > 0.02);
   const quieterFloor = updateAdaptiveNoiseFloor(floor, 0.003);
   assert.ok(quieterFloor < floor);
-  assert.equal(adaptiveSilenceThreshold(0.001), 0.008);
+  assert.equal(adaptiveSilenceThreshold(0.001), 0.003);
 });
 
 test("nearest target and hysteresis avoid unnecessary string hopping", () => {
@@ -118,6 +140,7 @@ test("nearest target and hysteresis avoid unnecessary string hopping", () => {
 test("stable pitch confirmation rejects alternating signals and expires stale readings", () => {
   assert.equal(hasStablePitchFrequencies([110, 110.5, 109.7]), true);
   assert.equal(hasStablePitchFrequencies([110, 196, 110]), false);
+  assert.equal(hasStablePitchFrequencies([110, 110.5], 2), true);
   assert.equal(isTrustedReadingExpired(1000, 1519), false);
   assert.equal(isTrustedReadingExpired(1000, 1521), true);
 });

@@ -101,7 +101,7 @@ export function rmsForBuffer(buffer) {
 }
 
 export function updateAdaptiveNoiseFloor(noiseFloor, rms, options = {}) {
-  const initialFloor = options.initialFloor ?? 0.004;
+  const initialFloor = options.initialFloor ?? 0.0015;
   const maximumFloor = options.maximumFloor ?? 0.08;
   const risingRate = options.risingRate ?? 0.18;
   const fallingRate = options.fallingRate ?? 0.025;
@@ -112,20 +112,24 @@ export function updateAdaptiveNoiseFloor(noiseFloor, rms, options = {}) {
 }
 
 export function adaptiveSilenceThreshold(noiseFloor, options = {}) {
-  const minimum = options.minimum ?? 0.008;
+  const minimum = options.minimum ?? 0.003;
   const maximum = options.maximum ?? 0.08;
-  const multiplier = options.multiplier ?? 2.4;
+  const multiplier = options.multiplier ?? 1.5;
   return Math.max(minimum, Math.min(maximum, noiseFloor * multiplier));
 }
 
-// The noise floor may only learn from genuinely quiet frames. A loud frame
-// without a pitch is usually a real string that failed the clarity or
-// stability gate; feeding its RMS into the floor inflates the silence
-// threshold until genuine plucks are muted, and the slow falling rate makes
-// the engine unresponsive for seconds afterwards.
+// Noise learning is deliberately slow and capped. The engine only calls this
+// after several rejected frames, so a string's attack cannot immediately
+// inflate the silence gate. Sustained unpitched room noise can still raise the
+// gate enough to prevent idle noise from entering autocorrelation.
 export function learnNoiseFloorFromFrame(noiseFloor, rms, options = {}) {
-  if (rms >= adaptiveSilenceThreshold(noiseFloor, options)) return noiseFloor;
-  return updateAdaptiveNoiseFloor(noiseFloor, rms, options);
+  const maximumLearnableRms = options.maximumLearnableRms ?? 0.018;
+  if (rms > maximumLearnableRms) return noiseFloor;
+  return updateAdaptiveNoiseFloor(noiseFloor, rms, {
+    ...options,
+    risingRate: options.risingRate ?? 0.06,
+    fallingRate: options.fallingRate ?? 0.015,
+  });
 }
 
 export function hasStablePitchFrequencies(frequencies, requiredFrames = 3, maximumCents = 35) {
